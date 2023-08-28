@@ -1,0 +1,202 @@
+---
+title: "stuff for anson and anthony"
+author: "Levi"
+date: "2023-08-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Load required libraries
+library(tidyverse)
+library(lubridate)
+library(haven)
+library(sjlabelled)
+library(countrycode)
+library(ggplot2)
+library(lme4)
+library(lmerTest)
+library(sjPlot)
+library(htmltools)
+library(interactions)
+library(multcomp)
+library(Hmisc)
+
+# Set options for numeric output
+options(scipen = 9999) 
+
+# Set directory (Windows)
+# setwd('/Documents/Work/University/PhD in Psychology (University of Toronto)/PhD Work/Data/Analysis')
+```
+
+## Create function that can create dataframes of the joint hypothesis tests
+
+```{r}
+joint_hypothesis_df <- function(identifier_name, ...) {
+  # Convert a single summary object to a data frame
+  convert_to_df <- function(summary_object, id_name) {
+    data.frame(
+      Identifier = id_name,
+      Estimate = summary_object$test$coefficients,
+      Std.Error = summary_object$test$sigma,
+      z.value = summary_object$test$tstat,
+      p.value = format.pval(summary_object$test$pvalues, digits = 20, eps = .Machine$double.eps)
+    )
+  }
+  # Extract the summary objects from the ...
+  summary_objects <- list(...)
+  # Check if lengths match
+  if(length(summary_objects) != length(identifier_name)) {
+    stop("Length of identifier names does not match the number of summary objects provided.")
+  }
+  names(summary_objects) <- identifier_name
+  # Convert each summary object to a data frame and combine
+  combined_df <- do.call(rbind, lapply(names(summary_objects), function(name) {
+    convert_to_df(summary_objects[[name]], name)
+  }))
+  return(combined_df)
+}
+```
+
+##### Run joint hypothesis test to see if any groups from part_freedom differed from 0 (years_after_eu and years_before_after_eu, life satisfaction)
+
+This is a continuous variable (part_freedom, which serves as our moderator).
+
+```{r}
+# Load data and model
+load('data_eu_ls_part_freedom.RData')
+load('analysis_eu_ls_part_freedom.RData')
+
+# Set up matrix for high, mean, and low part_freedom effect
+coefeq_high <- matrix(data = 0, nrow = 1, ncol = length(fixef(analysis_eu_ls_part_freedom)))
+coefeq_mean <- matrix(data = 0, nrow = 1, ncol = length(fixef(analysis_eu_ls_part_freedom)))
+coefeq_low <- matrix(data = 0, nrow = 1, ncol = length(fixef(analysis_eu_ls_part_freedom)))
+
+# Set names for part_freedom matrices
+colnames(coefeq_high) <- names(fixef(analysis_eu_ls_part_freedom))
+colnames(coefeq_mean) <- names(fixef(analysis_eu_ls_part_freedom))
+colnames(coefeq_low) <- names(fixef(analysis_eu_ls_part_freedom))
+
+# Set value of post_eu_status1 to be 1 (thereby indicating it occurs after a country joins the European Union)
+coefeq_high[1, "post_eu_status1"] <- 1
+coefeq_mean[1, "post_eu_status1"] <- 1
+coefeq_low[1, "post_eu_status1"] <- 1
+
+# Set value of moderator:post_eu_status1 interaction, with the value set as the appropriate standard deviation of part_freedom
+coefeq_high[1, "moderator:post_eu_status1"] <- 1
+coefeq_mean[1, "moderator:post_eu_status1"] <- 0
+coefeq_low[1, "moderator:post_eu_status1"] <- -1
+
+# Set value of years_after_eu to be 10 (thereby indicating testing after a country has been in the European Union for 10 years)
+coefeq_high[1, "years_after_eu"] <- 10
+coefeq_mean[1, "years_after_eu"] <- 10
+coefeq_low[1, "years_after_eu"] <- 10
+
+# Set value of moderator:years_after_eu interaction, with the value set as 10 x the value of part_freedom sd
+coefeq_high[1, "moderator:years_after_eu"] <- 10
+coefeq_mean[1, "moderator:years_after_eu"] <- 0
+coefeq_low[1, "moderator:years_after_eu"] <- -10
+
+# Set value of years_before_after_eu to be 10 (thereby indicating testing after a country has been in the European Union for 10 years)
+coefeq_high[1, "years_before_after_eu"] <- 10
+coefeq_mean[1, "years_before_after_eu"] <- 10
+coefeq_low[1, "years_before_after_eu"] <- 10
+
+# Set value of years_before_after_eu:moderator interaction, with the value set as 10 x the value of part_freedom sd
+coefeq_high[1, "years_before_after_eu:moderator"] <- 10
+coefeq_mean[1, "years_before_after_eu:moderator"] <- 0
+coefeq_low[1, "years_before_after_eu:moderator"] <- -10
+
+# Run the joint hypothesis test
+sdhigh_ls_part_freedom_aftereu <- glht(model = analysis_eu_ls_part_freedom, linfct = coefeq_high, rhs = 0, alternative = "greater")
+sdmean_ls_part_freedom_aftereu <- glht(model = analysis_eu_ls_part_freedom, linfct = coefeq_mean, rhs = 0, alternative = "greater")
+sdlow_ls_part_freedom_aftereu <- glht(model = analysis_eu_ls_part_freedom, linfct = coefeq_low, rhs = 0, alternative = "greater")
+
+# Create summary objects in prepartion for the dataframe
+sdhigh_ls_part_freedom_aftereu <- summary(sdhigh_ls_part_freedom_aftereu)
+sdmean_ls_part_freedom_aftereu <- summary(sdmean_ls_part_freedom_aftereu)
+sdlow_ls_part_freedom_aftereu <- summary(sdlow_ls_part_freedom_aftereu)
+
+# Create the dataframe
+joint_ls_part_freedom_aftereu <- joint_hypothesis_df(c("High freedom", "Mean freedom", "Low freedom"), sdhigh_ls_part_freedom_aftereu, sdmean_ls_part_freedom_aftereu, sdlow_ls_part_freedom_aftereu) %>%
+  rename("After EU" = Identifier)
+
+# Save dataframe
+save(joint_ls_part_freedom_aftereu, file = 'joint_ls_part_freedom_aftereu.RData')
+
+# Remove dataframe
+rm(data_eu_ls_part_freedom, analysis_eu_ls_part_freedom, joint_ls_part_freedom_aftereu, sdhigh_ls_part_freedom_aftereu, sdmean_ls_part_freedom_aftereu, sdlow_ls_part_freedom_aftereu)
+```
+
+##### Run joint hypothesis test to see if any groups from part_income_wvs_subj differed from 0 (years_after_eu and years_before_after_eu, life satisfaction)
+
+This is a categorical variable (part_income_wvs_subj, which serves as our moderator).
+
+```{r}
+# Load data and model
+load('data_eu_ls_part_income_wvs_subj.RData')
+load('analysis_eu_ls_part_income_wvs_subj.RData')
+
+# Set up matrix for high, mean, and low part_income_wvs_subj effect
+coefeq_2 <- matrix(data = 0, nrow = 1, ncol = length(fixef(analysis_eu_ls_part_income_wvs_subj)))
+coefeq_1 <- matrix(data = 0, nrow = 1, ncol = length(fixef(analysis_eu_ls_part_income_wvs_subj)))
+coefeq_0 <- matrix(data = 0, nrow = 1, ncol = length(fixef(analysis_eu_ls_part_income_wvs_subj)))
+
+# Set names for part_income_wvs_subj matrices
+colnames(coefeq_2) <- names(fixef(analysis_eu_ls_part_income_wvs_subj))
+colnames(coefeq_1) <- names(fixef(analysis_eu_ls_part_income_wvs_subj))
+colnames(coefeq_0) <- names(fixef(analysis_eu_ls_part_income_wvs_subj))
+
+# Set value of post_eu_status1 to be 1 (thereby indicating it occurs after a country joins the European Union)
+coefeq_2[1, "post_eu_status1"] <- 1
+coefeq_1[1, "post_eu_status1"] <- 1
+coefeq_0[1, "post_eu_status1"] <- 1
+
+# Set value of moderator:post_eu_status1 interaction, with the value set as the appropriate value of part_income_wvs_subj
+coefeq_2[1, "moderator2:post_eu_status1"] <- 1
+# coefeq_1[1, "post_eu_status1"] <- 1 # This is the pattern for the reference group
+coefeq_0[1, "moderator0:post_eu_status1"] <- 1
+
+# Set value of years_after_eu to be 10 (thereby indicating testing after a country has been in the European Union for 10 years)
+coefeq_2[1, "years_after_eu"] <- 10
+coefeq_1[1, "years_after_eu"] <- 10
+coefeq_0[1, "years_after_eu"] <- 10
+
+# Set value of moderator:years_after_eu interaction, with the value set as 10 x the value of part_income_wvs_subj
+coefeq_2[1, "moderator2:years_after_eu"] <- 10
+# coefeq_1[1, "years_after_eu"] <- 10 # This is the pattern for the reference group
+coefeq_0[1, "moderator0:years_after_eu"] <- 10
+
+# Set value of years_before_after_eu to be 10 (thereby indicating testing after a country has been in the European Union for 10 years)
+coefeq_2[1, "years_before_after_eu"] <- 10
+coefeq_1[1, "years_before_after_eu"] <- 10
+coefeq_0[1, "years_before_after_eu"] <- 10
+
+# Set value of years_before_after_eu:moderator interaction, with the value set as 10 x the value of part_income_wvs_subj
+coefeq_2[1, "years_before_after_eu:moderator2"] <- 10
+# coefeq_1[1, "years_before_after_eu"] <- 10 # This is the pattern for the reference group
+coefeq_0[1, "years_before_after_eu:moderator0"] <- 10
+
+# Run the joint hypothesis test
+sd2_ls_part_income_wvs_subj_aftereu <- glht(model = analysis_eu_ls_part_income_wvs_subj, linfct = coefeq_2, rhs = 0, alternative = "greater")
+sd1_ls_part_income_wvs_subj_aftereu <- glht(model = analysis_eu_ls_part_income_wvs_subj, linfct = coefeq_1, rhs = 0, alternative = "greater")
+sd0_ls_part_income_wvs_subj_aftereu <- glht(model = analysis_eu_ls_part_income_wvs_subj, linfct = coefeq_0, rhs = 0, alternative = "greater")
+
+# Create summary objects in prepartion for the dataframe
+sd2_ls_part_income_wvs_subj_aftereu <- summary(sd2_ls_part_income_wvs_subj_aftereu)
+sd1_ls_part_income_wvs_subj_aftereu <- summary(sd1_ls_part_income_wvs_subj_aftereu)
+sd0_ls_part_income_wvs_subj_aftereu <- summary(sd0_ls_part_income_wvs_subj_aftereu)
+
+# Create the dataframe
+joint_part_income_wvs_subj_aftereu <- joint_hypothesis_df(c("High subjective income", "Medium subjective income", "Low subjective income"), sd2_ls_part_income_wvs_subj_aftereu, sd1_ls_part_income_wvs_subj_aftereu, sd0_ls_part_income_wvs_subj_aftereu) %>%
+  rename("After EU" = Identifier)
+
+# Save dataframe
+save(joint_part_income_wvs_subj_aftereu, file = 'joint_part_income_wvs_subj_aftereu.RData')
+
+# Remove dataframe
+rm(data_eu_ls_part_income_wvs_subj, analysis_eu_ls_part_income_wvs_subj, joint_part_income_wvs_subj_aftereu, sd2_ls_part_income_wvs_subj_aftereu, sd1_ls_part_income_wvs_subj_aftereu, sd0_ls_part_income_wvs_subj_aftereu)
+```
